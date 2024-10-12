@@ -1,10 +1,26 @@
 # MaStR2GPX
 
 This is a tool that can be used to convert a full dump ("Gesamtdatenauszug") of the german
-[Marktstammdatenregister](https://www.marktstammdatenregister.de) into a GPX file.
+[Marktstammdatenregister](https://www.marktstammdatenregister.de) into a GPX file:
+
+```
+$ mastr2gpx Gesamtdatenexport_20241012_24.2/
+```
 
 This is intended to be a mapping help, e.g. when correlating official data to things you see on [OpenStreetMap](https://www.openstreetmap.org)
 or on a satellite image.
+
+## Filtering data
+
+The tool allows to filter data based on the postal code or a bounding box by providing command-line parameters, e.g.
+
+```
+$ mastr2gpx --postal-code 12345 Gesamtdatenexport_20241012_24.2/
+```
+
+```
+$ mastr2gpx --bbox 12.6332,52.5317,12.8725,52.6316 Gesamtdatenexport_20241012_24.2/
+```
 
 ## Accuracy warning
 
@@ -13,13 +29,6 @@ geo coordinates are often only appoximated and may be off by hundreds of meters.
 a solar park on the map, but the data didn't align (wrong panel orientation, too few panels).
 
 So make sure to perform some sanity checks before using the data on OSM.
-
-## Filtering data
-
-This first iteration of the tool allows to filter data based on the postal code by changing the source code.
-The filtering still needs to be extracted into a command-line parameter like many other things and filtering based on
-a bounding box might make sense if private installations should be mapped as well. As far as I can tell, postal codes are not
-in the data set when the operator of the generator is a natural person.
 
 ## Disclaimer & Acknowledgement
 

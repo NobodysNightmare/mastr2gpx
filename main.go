@@ -4,8 +4,10 @@ import (
 	"encoding/xml"
 	"fmt"
 	"os"
+	"strconv"
 	"strings"
 
+	"github.com/urfave/cli/v2"
 	"nur-jan.de/go/mastr2gpx/xmlstream"
 
 	"golang.org/x/text/encoding/unicode"
@@ -39,15 +41,69 @@ type EinheitSolar struct {
 	Modules    int     `xml:"AnzahlModule"`
 }
 
-func main() {
-	directory := "/home/jan/Downloads/Gesamtdatenexport_20241012_24.2/"
-	outputFile := "generators.gpx"
-	postalCode := "12345"
+var filterers []Filterer
 
-	generators, err := findAllGenerators(directory, postalCode)
-	if err != nil {
-		fmt.Println("Could not get all generators:", err)
+func main() {
+	app := &cli.App{
+		Action: run,
+		Flags: []cli.Flag{
+			&cli.StringFlag{
+				Name:  "output",
+				Value: "output.gpx",
+				Usage: "The name of the GPX file to be written",
+			},
+			&cli.StringFlag{
+				Name:  "postal-code",
+				Usage: "Filter added entities by their postal code",
+				Action: func(ctx *cli.Context, v string) error {
+					filterers = append(filterers, PostalCodeFilter{PostalCode: v})
+					return nil
+				},
+			},
+			&cli.StringFlag{
+				Name:  "bbox",
+				Usage: "Filter added entities by a bounding box (Format: left,bottom,right,top)",
+				Action: func(ctx *cli.Context, v string) error {
+					strs := strings.Split(v, ",")
+					if len(strs) != 4 {
+						return fmt.Errorf("Expecting a bounding box in the format left,bottom,right,top. I.e. four comma-separated coordinates.")
+					}
+					left, _ := strconv.ParseFloat(strs[0], 64)
+					bottom, _ := strconv.ParseFloat(strs[1], 64)
+					right, _ := strconv.ParseFloat(strs[2], 64)
+					top, _ := strconv.ParseFloat(strs[3], 64)
+
+					if left > right || bottom > top {
+						return fmt.Errorf("Invalid bounding box coordinates, either left-right or top-bottom is inverted.")
+					}
+
+					filterers = append(filterers, BoundingBoxFilter{left: left, bottom: bottom, right: right, top: top})
+					fmt.Println(filterers[0])
+					return nil
+				},
+			},
+		},
+	}
+
+	app.UsageText = "mastr2gpx [global options] input-directory"
+
+	if err := app.Run(os.Args); err != nil {
+		fmt.Println(err)
 		os.Exit(1)
+	}
+}
+
+func run(cCtx *cli.Context) error {
+	directory := cCtx.Args().Get(0)
+	if directory == "" {
+		return fmt.Errorf("Directory to extracted dump must be provided.")
+	}
+
+	outputFile := cCtx.String("output")
+
+	generators, err := findAllGenerators(directory)
+	if err != nil {
+		return err
 	}
 
 	gpx := Gpx{Metadata: GpxMetadata{Name: "Generator List", Description: "A list of generator waypoints, extracted from a Marktstammdatenregister data export."}}
@@ -67,20 +123,19 @@ func main() {
 
 	gpxData, err := xml.Marshal(gpx)
 	if err != nil {
-		fmt.Println("Could not generate GPX:", err)
-		os.Exit(1)
+		return err
 	}
 
 	err = os.WriteFile(outputFile, gpxData, 0777)
 	if err != nil {
-		fmt.Println("Could not write GPX file:", err)
-		os.Exit(1)
+		return err
 	}
 
 	fmt.Println("GPX-Export finished! Wrote", len(gpx.Waypoints), "waypoints to the file.")
+	return nil
 }
 
-func findAllGenerators(directory, postalCode string) ([]EinheitSolar, error) {
+func findAllGenerators(directory string) ([]EinheitSolar, error) {
 	fileEntries, err := os.ReadDir(directory)
 	if err != nil {
 		return nil, fmt.Errorf("Could not read directory: %w", err)
@@ -101,7 +156,7 @@ func findAllGenerators(directory, postalCode string) ([]EinheitSolar, error) {
 
 		defer f.Close()
 
-		newGenerators, err := findGenerators(f, postalCode)
+		newGenerators, err := findGenerators(f)
 		if err != nil {
 			return nil, fmt.Errorf("Could not read generators: %w", err)
 		}
@@ -112,7 +167,7 @@ func findAllGenerators(directory, postalCode string) ([]EinheitSolar, error) {
 	return generators, nil
 }
 
-func findGenerators(f *os.File, postalCode string) ([]EinheitSolar, error) {
+func findGenerators(f *os.File) ([]EinheitSolar, error) {
 	utf16be := unicode.UTF16(unicode.BigEndian, unicode.IgnoreBOM)
 	utf16bom := unicode.BOMOverride(utf16be.NewDecoder())
 	unicodeReader := transform.NewReader(f, utf16bom)
@@ -128,11 +183,18 @@ func findGenerators(f *os.File, postalCode string) ([]EinheitSolar, error) {
 			if generator.Lat == 0 && generator.Lng == 0 {
 				continue
 			}
-			if generator.PostalCode != postalCode {
-				continue
+
+			keep := true
+			for _, filterer := range filterers {
+				if !filterer.Filter(generator) {
+					keep = false
+					break
+				}
 			}
 
-			result = append(result, generator)
+			if keep {
+				result = append(result, generator)
+			}
 		}
 	}
 
