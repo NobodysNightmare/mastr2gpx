@@ -126,7 +126,7 @@ func run(cCtx *cli.Context) error {
 		return err
 	}
 
-	err = os.WriteFile(outputFile, gpxData, 0777)
+	err = os.WriteFile(outputFile, gpxData, 0664)
 	if err != nil {
 		return err
 	}
